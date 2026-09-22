@@ -6,11 +6,10 @@ import sqlite3
 from datetime import datetime, timezone, timedelta
 import email.utils
 
-# クリップ用データベースの初期化（古いテーブルがある場合は安全に作り直す）
+# クリップ用データベースの初期化
 def init_clip_db():
     conn = sqlite3.connect("saved_clips.db")
     c = conn.cursor()
-    # テーブル構造が古い場合の対策として一旦確認
     c.execute("PRAGMA table_info(clips)")
     columns = [col[1] for col in c.fetchall()]
     if columns and "source_type" not in columns:
@@ -33,164 +32,126 @@ def init_clip_db():
 
 init_clip_db()
 
-st.set_page_config(page_title="正論・論拠 公的データ＆リアルタイムポータル", page_icon="🏛️", layout="wide")
+st.set_page_config(page_title="正論・論拠 構造化ポータル", page_icon="📑", layout="wide")
 
-st.markdown("### 🏛️ 公的データ・論拠 統合検索ポータル")
-st.caption("国会図書館（NDL）、国土交通省・各省庁の公的資料、および信頼性の高い論考データを横断検索し、実データに基づいた要約を作成します。")
+st.markdown("### 📑 正論・論拠 構造化ポータル（情報整理 ⇒ 要約 ⇒ 典拠リンク）")
+st.caption("検索キーワードについて「多角的な方向性の整理」を行い、「要約」と「具体的な情報源へのリンク」を体系的に紐づけて表示します。")
 
-# タブによる切り替え
-tab1, tab2 = st.tabs(["🔍 統合検索＆AI要約", "📌 保存済みクリップ一覧"])
+tab1, tab2 = tab1, tab2 = st.tabs(["🔍 構造化検索・要約ビュー", "📌 保存済みクリップ一覧"])
 
 with tab1:
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        search_keyword = st.text_input("調べたい人物・テーマ・キーワード（例：石原慎太郎、尖閣諸島、国土交通政策 など）", "国交省 政策 報告")
-    with col2:
-        source_target = st.selectbox(
-            "情報ソースの選択", 
-            ["すべての情報源（統合）", "国土交通省・各省庁 (go.jp)", "国立国会図書館 (NDL Search)", "Google ニュース（Web全体）"]
-        )
-
+    search_keyword = st.text_input("調べたいテーマ・人物・キーワード（例：尖閣諸島、石原慎太郎、インフラ老朽化 など）", "尖閣諸島 防衛")
+    
     st.markdown("---")
 
     if search_keyword:
-        st.markdown(f"**「{search_keyword}」に関する公的資料・省庁データ・論拠を各データベースから取得中...**")
+        st.markdown(f"**「{search_keyword}」に関する情報を多角的な方向性（省庁・国会図書館・最新動向）から収集中...**")
         
-        all_items = []
+        items_mlit = []
+        items_ndl = []
+        items_news = []
         
-        # 1. 国立国会図書館 (NDL Search) API からの取得
-        if source_target in ["すべての情報源（統合）", "国立国会図書館 (NDL Search)"]:
-            try:
-                ndl_query = urllib.parse.quote(search_keyword)
-                ndl_url = f"https://ndlsearch.ndl.go.jp/api/opensearch?any={ndl_query}&cnt=10"
-                req_ndl = urllib.request.Request(ndl_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req_ndl) as res:
-                    ndl_xml = res.read()
-                root_ndl = ET.fromstring(ndl_xml)
-                for item in root_ndl.findall('.//{http://www.w3.org/2005/Atom}entry'):
-                    title_node = item.find('{http://www.w3.org/2005/Atom}title')
-                    link_node = item.find('{http://www.w3.org/2005/Atom}link')
-                    date_node = item.find('{http://www.w3.org/2005/Atom}issued')
-                    
-                    title = title_node.text if title_node is not None else "タイトルなし"
-                    link = link_node.attrib.get('href', '#') if link_node is not None else "#"
-                    raw_date = date_node.text if date_node is not None else "公的記録"
-                    
-                    all_items.append({
-                        "source": "📚 国立国会図書館 (NDL)",
-                        "title": title,
-                        "link": link,
-                        "date": raw_date[:10] if len(raw_date)>=10 else raw_date
-                    })
-            except Exception:
-                pass
+        # 1. 国土交通省・各省庁 (go.jp) の視点
+        try:
+            q = f"{search_keyword} (site:mlit.go.jp OR site:go.jp)"
+            url = f"https://news.google.com/rss/search?q={urllib.parse.quote(q)}&hl=ja&gl=JP&ceid=JP:ja"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as res:
+                root = ET.fromstring(res.read())
+            for item in root.findall('.//item'):
+                t = item.find('title').text if item.find('title'] is not None else "タイトルなし"
+                l = item.find('link').text if item.find('link') is not None else "#"
+                items_mlit.append({"title": t, "link": l, "source": "省庁・公的機関 (go.jp)"})
+        except:
+            pass
 
-        # 2. 省庁・公的機関 (go.jp) または ニュース全体の取得
-        if source_target in ["すべての情報源（統合）", "国土交通省・各省庁 (go.jp)", "Google ニュース（Web全体）"]:
-            try:
-                target_q = search_keyword
-                if source_target == "国土交通省・各省庁 (go.jp)":
-                    target_q += " (site:mlit.go.jp OR site:go.jp)"
-                
-                encoded_query = urllib.parse.quote(target_q)
-                rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ja&gl=JP&ceid=JP:ja"
-                req_news = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req_news) as res:
-                    news_xml = res.read()
-                    
-                root_news = ET.fromstring(news_xml)
-                for item in root_news.findall('.//item'):
-                    title = item.find('title').text if item.find('title') is not None else "タイトルなし"
-                    link = item.find('link').text if item.find('link') is not None else "#"
-                    raw_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
-                    
-                    formatted_date = raw_date
-                    if raw_date:
-                        try:
-                            parsed_tuple = email.utils.parsedate_tz(raw_date)
-                            if parsed_tuple:
-                                timestamp = email.utils.mktime_tz(parsed_tuple)
-                                jst = timezone(timedelta(hours=9))
-                                dt_jst = datetime.fromtimestamp(timestamp, jst)
-                                formatted_date = dt_jst.strftime('%Y年%m月%d日')
-                        except:
-                            pass
-                            
-                    source_node = item.find('source')
-                    s_name = source_node.text if source_node is not None else "公的・Webメディア"
-                    
-                    # 省庁ドメインが含まれている場合のソース名調整
-                    display_source = f"🏛️ {s_name}"
-                    if "mlit.go.jp" in link:
-                        display_source = "🏛️ 国土交通省 (MLIT)"
-                    elif "go.jp" in link:
-                        display_source = "🏛️ 政府・公的機関 (go.jp)"
-                    
-                    all_items.append({
-                        "source": display_source,
-                        "title": title,
-                        "link": link,
-                        "date": formatted_date
-                    })
-            except Exception:
-                pass
+        # 2. 国立国会図書館 (NDL Search) の視点
+        try:
+            url = f"https://ndlsearch.ndl.go.jp/api/opensearch?any={urllib.parse.quote(search_keyword)}&cnt=5"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as res:
+                root = ET.fromstring(res.read())
+            for item in root.findall('.//{http://www.w3.org/2005/Atom}entry'):
+                t = item.find('{http://www.w3.org/2005/Atom}title')
+                l = item.find('{http://www.w3.org/2005/Atom}link')
+                title_txt = t.text if t is not None else "タイトルなし"
+                link_txt = l.attrib.get('href', '#') if l is not None else "#"
+                items_ndl.append({"title": title_txt, "link": link_txt, "source": "国立国会図書館 (NDL)"})
+        except:
+            pass
 
-        if all_items:
-            st.success(f"✨ 取得成功: 合計 {len(all_items)} 件の公的資料・省庁関連データを集約しました。")
+        # 3. Webニュース全般（幅広い論点・方向性）
+        try:
+            url = f"https://news.google.com/rss/search?q={urllib.parse.quote(search_keyword)}&hl=ja&gl=JP&ceid=JP:ja"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as res:
+                root = ET.fromstring(res.read())
+            for item in root.findall('.//item'):
+                t = item.find('title').text if item.find('title') is not None else "タイトルなし"
+                l = item.find('link').text if item.find('link') is not None else "#"
+                s = item.find('source')
+                s_name = s.text if s is not None else "Webメディア"
+                items_news.append({"title": t, "link": l, "source": s_name})
+        except:
+            pass
+
+        if items_mlit or items_ndl or items_news:
+            st.success("✨ 多角的な情報収集と構造化整理が完了しました。")
             
-            # --- 【実際の取得データに基づいた統合要約セクション】 ---
-            with st.expander("🤖 取得した情報からの【統合要約・論点整理】を開く", expanded=True):
-                st.markdown("#### 【AIによる総合要約】")
-                st.markdown(
-                    f"「**{search_keyword}**」に関する国立国会図書館や国土交通省をはじめとする省庁・公的ソースの取得データに基づき、"
-                    "以下の通り要約・整理いたします。"
-                )
-                
-                # 上位のタイトルをいくつか抽出して要約に反映
-                top_titles = [item['title'] for item in all_items[:3]]
-                st.markdown("**主な参照ポイント:**")
-                for t in top_titles:
-                    st.markdown(f"- {t}")
-                
-                st.markdown(
-                    f"\n**分析とインサイト**: 上記の公的記録や最新の省庁発表等から、当該テーマにおいては制度的枠組みの構築や"
-                    f"実務的な運用指針が重要視されていることが分かります。正確なファクト確認のために、各省庁の公式リンクや"
-                    f"国会図書館の一次資料をご参照ください。"
-                )
-            
+            st.markdown("### 📊 【情報整理 ⇒ 要約 ⇒ 典拠リンクの体系】")
             st.markdown("---")
-            st.markdown("### 📋 取得された公的資料・記事一覧")
-            
-            for idx, entry in enumerate(all_items[:20]):
-                st.markdown(f"**[{entry['source']}] {entry['title']}**")
-                st.markdown(f"公開・登録日: {entry['date']} | 🔗 [詳細リンク・公式資料を見る]({entry['link']})")
-                
-                # クリップ登録ボタン
-                if st.button("📌 この資料をマイクリップに登録", key=f"clip_{idx}_{entry['link']}"):
-                    conn = sqlite3.connect("saved_clips.db")
-                    c = conn.cursor()
-                    c.execute("SELECT id FROM clips WHERE link = ?", (entry['link'],))
-                    if not c.fetchone():
-                        c.execute(
-                            "INSERT INTO clips (source_type, title, link, pub_date, saved_at) VALUES (?, ?, ?, ?, ?)",
-                            (entry['source'], entry['title'], entry['link'], entry['date'], str(datetime.now().strftime('%Y-%m-%d %H:%M')))
-                        )
-                        conn.commit()
-                        st.success("✨ クリップに保存しました！")
-                    else:
-                        st.info("💡 この資料はすでに保存されています。")
-                    conn.close()
 
-                st.markdown("---")
+            # --- 方向性1：省庁・公的機関の視点 ---
+            st.markdown("#### 🏛️ 方向性①：省庁・公的政策の視点（制度・方針）")
+            st.markdown(
+                "> **【要約】**: 政府や各省庁による公式発表や施策、報告書に基づく方向性です。"
+                "制度的な枠組み、法的な裏付け、および公的な方針を確認することができます。"
+            )
+            if items_mlit:
+                for idx, entry in enumerate(items_mlit[:3]):
+                    st.markdown(f"- **{entry['title']}**")
+                    st.markdown(f"  🔗 [公式情報源・詳細を見る（{entry['source']}）]({entry['link']})")
+            else:
+                st.info("💡 該当する省庁・公的データが見つかりませんでした。")
+
+            st.markdown("---")
+
+            # --- 方向性2：歴史的・学術的背景（国会図書館） ---
+            st.markdown("#### 📚 方向性②：歴史的・文献的背景（国立国会図書館アーカイブ）")
+            st.markdown(
+                "> **【要約】**: 国立国会図書館に収蔵されている専門書や公的刊行物の記録に基づく方向性です。"
+                "長期的な変遷や、過去からの政策的・歴史的な文脈を辿る際に有効です。"
+            )
+            if items_ndl:
+                for idx, entry in enumerate(items_ndl[:3]):
+                    st.markdown(f"- **{entry['title']}**")
+                    st.markdown(f"  🔗 [国会図書館の資料・詳細ページを開く]({entry['link']})")
+            else:
+                st.info("💡 該当する国会図書館の文献データが見つかりませんでした。")
+
+            st.markdown("---")
+
+            # --- 方向性3：最新の社会動向・論考（メディア・各界） ---
+            st.markdown("#### 📰 方向性③：最新の社会動向・多元的論考（メディア・各界の視点）")
+            st.markdown(
+                "> **【要約】**: 各種メディア報道や各界の論客による多面的な議論に基づく方向性です。"
+                "現在進行形の世論の動きや、様々な角度からの解釈・争点を整理できます。"
+            )
+            if items_news:
+                for idx, entry in enumerate(items_news[:5]):
+                    st.markdown(f"- **[{entry['source']}] {entry['title']}**")
+                    st.markdown(f"  🔗 [記事・論考の元情報へアクセス]({entry['link']})")
+            else:
+                st.info("💡 該当するニュース記事が見つかりませんでした。")
+
         else:
-            st.info("💡 該当する公的情報が見つかりませんでした。キーワードを変更して再度お試しください。")
-            
+            st.warning("⚠️ 情報が見つかりませんでした。別のキーワードでお試しください。")
     else:
-        st.info("💡 上部の検索ボックスに調べたいテーマや省庁関連のキーワードを入力してください。")
+        st.info("💡 上部の検索ボックスに調べたいキーワードを入力してください。")
 
 with tab2:
     st.markdown("### 📌 保存済みクリップ一覧")
-    st.markdown("「統合検索」から保存した公的資料や記事の一覧です。")
+    st.markdown("構造化検索から保存した資料や記事の一覧です。")
     
     conn = sqlite3.connect("saved_clips.db")
     c = conn.cursor()
@@ -216,4 +177,4 @@ with tab2:
 
             st.markdown("---")
     else:
-        st.info("💡 保存されているクリップはありません。「統合検索＆AI要約」タブから気になる資料を保存してください。")
+        st.info("💡 保存されているクリップはありません。")
