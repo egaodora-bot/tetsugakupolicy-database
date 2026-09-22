@@ -37,7 +37,7 @@ st.set_page_config(page_title="正論・論拠 構造化ポータル", page_icon
 st.markdown("### 📑 正論・論拠 構造化ポータル（情報整理 ⇒ 要約 ⇒ 典拠リンク）")
 st.caption("検索キーワードについて「多角的な方向性の整理」を行い、「要約」と「具体的な情報源へのリンク」を体系的に紐づけて表示します。")
 
-tab1, tab2 = tab1, tab2 = st.tabs(["🔍 構造化検索・要約ビュー", "📌 保存済みクリップ一覧"])
+tab1, tab2 = st.tabs(["🔍 構造化検索・要約ビュー", "📌 保存済みクリップ一覧"])
 
 with tab1:
     search_keyword = st.text_input("調べたいテーマ・人物・キーワード（例：尖閣諸島、石原慎太郎、インフラ老朽化 など）", "尖閣諸島 防衛")
@@ -59,8 +59,10 @@ with tab1:
             with urllib.request.urlopen(req) as res:
                 root = ET.fromstring(res.read())
             for item in root.findall('.//item'):
-                t = item.find('title').text if item.find('title'] is not None else "タイトルなし"
-                l = item.find('link').text if item.find('link') is not None else "#"
+                t_node = item.find('title')
+                l_node = item.find('link')
+                t = t_node.text if t_node is not None else "タイトルなし"
+                l = l_node.text if l_node is not None else "#"
                 items_mlit.append({"title": t, "link": l, "source": "省庁・公的機関 (go.jp)"})
         except:
             pass
@@ -87,8 +89,10 @@ with tab1:
             with urllib.request.urlopen(req) as res:
                 root = ET.fromstring(res.read())
             for item in root.findall('.//item'):
-                t = item.find('title').text if item.find('title') is not None else "タイトルなし"
-                l = item.find('link').text if item.find('link') is not None else "#"
+                t_node = item.find('title')
+                l_node = item.find('link')
+                t = t_node.text if t_node is not None else "タイトルなし"
+                l = l_node.text if l_node is not None else "#"
                 s = item.find('source')
                 s_name = s.text if s is not None else "Webメディア"
                 items_news.append({"title": t, "link": l, "source": s_name})
@@ -111,6 +115,21 @@ with tab1:
                 for idx, entry in enumerate(items_mlit[:3]):
                     st.markdown(f"- **{entry['title']}**")
                     st.markdown(f"  🔗 [公式情報源・詳細を見る（{entry['source']}）]({entry['link']})")
+                    
+                    if st.button("📌 マイクリップに登録", key=f"clip_mlit_{idx}_{entry['link']}"):
+                        conn = sqlite3.connect("saved_clips.db")
+                        c = conn.cursor()
+                        c.execute("SELECT id FROM clips WHERE link = ?", (entry['link'],))
+                        if not c.fetchone():
+                            c.execute(
+                                "INSERT INTO clips (source_type, title, link, pub_date, saved_at) VALUES (?, ?, ?, ?, ?)",
+                                ("省庁・公的機関", entry['title'], entry['link'], "公的記録", str(datetime.now().strftime('%Y-%m-%d %H:%M')))
+                            )
+                            conn.commit()
+                            st.success("✨ クリップに保存しました！")
+                        else:
+                            st.info("💡 すでに保存されています。")
+                        conn.close()
             else:
                 st.info("💡 該当する省庁・公的データが見つかりませんでした。")
 
@@ -126,6 +145,21 @@ with tab1:
                 for idx, entry in enumerate(items_ndl[:3]):
                     st.markdown(f"- **{entry['title']}**")
                     st.markdown(f"  🔗 [国会図書館の資料・詳細ページを開く]({entry['link']})")
+                    
+                    if st.button("📌 マイクリップに登録", key=f"clip_ndl_{idx}_{entry['link']}"):
+                        conn = sqlite3.connect("saved_clips.db")
+                        c = conn.cursor()
+                        c.execute("SELECT id FROM clips WHERE link = ?", (entry['link'],))
+                        if not c.fetchone():
+                            c.execute(
+                                "INSERT INTO clips (source_type, title, link, pub_date, saved_at) VALUES (?, ?, ?, ?, ?)",
+                                ("国立国会図書館", entry['title'], entry['link'], "文献資料", str(datetime.now().strftime('%Y-%m-%d %H:%M')))
+                            )
+                            conn.commit()
+                            st.success("✨ クリップに保存しました！")
+                        else:
+                            st.info("💡 すでに保存されています。")
+                        conn.close()
             else:
                 st.info("💡 該当する国会図書館の文献データが見つかりませんでした。")
 
@@ -141,6 +175,21 @@ with tab1:
                 for idx, entry in enumerate(items_news[:5]):
                     st.markdown(f"- **[{entry['source']}] {entry['title']}**")
                     st.markdown(f"  🔗 [記事・論考の元情報へアクセス]({entry['link']})")
+                    
+                    if st.button("📌 マイクリップに登録", key=f"clip_news_{idx}_{entry['link']}"):
+                        conn = sqlite3.connect("saved_clips.db")
+                        c = conn.cursor()
+                        c.execute("SELECT id FROM clips WHERE link = ?", (entry['link'],))
+                        if not c.fetchone():
+                            c.execute(
+                                "INSERT INTO clips (source_type, title, link, pub_date, saved_at) VALUES (?, ?, ?, ?, ?)",
+                                (entry['source'], entry['title'], entry['link'], "最新ニュース", str(datetime.now().strftime('%Y-%m-%d %H:%M')))
+                            )
+                            conn.commit()
+                            st.success("✨ クリップに保存しました！")
+                        else:
+                            st.info("💡 すでに保存されています。")
+                        conn.close()
             else:
                 st.info("💡 該当するニュース記事が見つかりませんでした。")
 
