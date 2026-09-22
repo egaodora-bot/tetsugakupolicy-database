@@ -3,9 +3,8 @@ import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import email.utils
-import pytz
 
 # クリップ用データベースの初期化
 def init_clip_db():
@@ -73,15 +72,16 @@ with tab1:
                     link = item.find('link').text if item.find('link') is not None else "#"
                     raw_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
                     
-                    # 日付を日本のわかりやすい表記（〇年〇月〇日 〇時〇分）に変換
+                    # 日付を標準ライブラリのみで日本時間（〇年〇月〇日 〇時〇分）に変換
                     formatted_date = raw_date
                     if raw_date:
                         try:
                             parsed_tuple = email.utils.parsedate_tz(raw_date)
                             if parsed_tuple:
-                                dt = datetime.fromtimestamp(email.utils.mktime_tz(parsed_tuple))
-                                jst = pytz.timezone('Asia/Tokyo')
-                                dt_jst = dt.astimezone(jst)
+                                timestamp = email.utils.mktime_tz(parsed_tuple)
+                                # 日本時間 (UTC+9) のタイムゾーンを作成
+                                jst = timezone(timedelta(hours=9))
+                                dt_jst = datetime.fromtimestamp(timestamp, jst)
                                 formatted_date = dt_jst.strftime('%Y年%m月%d日 %H:%M')
                         except Exception:
                             pass
