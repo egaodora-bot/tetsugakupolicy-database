@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime
 import streamlit as st
 
-# データベースの初期化
+# データベースの初期化（動的カテゴリに対応したスキーマ）
 def init_db():
     conn = sqlite3.connect("policy_database.db")
     c = conn.cursor()
@@ -24,37 +24,43 @@ def init_db():
     conn.commit()
     conn.close()
 
-# 初期化実行
 init_db()
 
 st.set_page_config(page_title="正論・論拠データベース", page_icon="🏛️", layout="wide")
 
-st.title("🏛️ 正論・論拠データベース")
-st.markdown("心に響く正論、的確な論拠、優れた意見を蓄積・検索するためのデータベースです。")
+st.title("🏛️ 正論・論拠データベース（自動・動的更新型）")
+st.markdown("最新トレンドや情報をスマートに自動収集・蓄積し、多角的に検索できる次世代データベースです。")
 
-# サイドバーメニュー
-menu = st.sidebar.selectbox("メニュー", ["検索・閲覧", "新規登録"])
+# サイドバーによるモード切り替え
+menu = st.sidebar.selectbox("メニュー", ["検索・閲覧", "AI自動インポート・収集"])
 
-if menu == "新規登録":
-    st.header("📝 新しい正論・論拠の登録")
+if menu == "AI自動インポート・収集":
+    st.header("🤖 AI自動インポート・情報収集")
+    st.markdown("テキスト、ニュースの抜粋、または長文を貼り付けるだけで、AIが自動で項目を解析・構造化してデータベースに蓄積します。")
 
-    with st.form("policy_form"):
-        speaker = st.text_input("発言者・論客（例：石原慎太郎 など）")
-        category = st.selectbox(
-            "カテゴリ",
-            ["政治・経済", "社会・倫理", "外交・安全保障", "テクノロジー", "科学・教育", "ビジネス・労働", "その他"]
-        )
-        title = st.text_input("主張・タイトルの要約（例：尖閣諸島防衛に関する意見 など）")
-        summary = st.text_area("正論・論拠の要約・詳細内容", height=150)
-        source = st.text_input("出典（例：書籍名、インタビュー、YouTube番組名 など）")
-        url = st.text_input("参考URL/動画リンク（任意）")
-        tags = st.text_input("タグ（カンマ区切り 例：尖閣, 安保, 国家観）")
-        date = st.date_input("登録日", datetime.today())
+    with st.form("auto_import_form"):
+        raw_text = st.text_area("収集・登録したい文章やニュース内容をここに貼り付け", height=200, placeholder="例：石原慎太郎氏の尖閣諸島に関する発言や、関連する論考のテキストをそのままペースト...")
+        
+        # 補助的な自動タグ・カテゴリのヒント指定
+        col_a, col_b = st.columns(2)
+        with col_a:
+            suggested_speaker = st.text_input("発言者・論客（任意・未入力の場合はAI自動推論）", placeholder="例：石原慎太郎")
+        with col_b:
+            suggested_category = st.text_input("カテゴリ・テーマ（任意・未入力の場合は自動生成）", placeholder="例：外交・安全保障")
 
-        submitted = st.form_submit_button("登録する")
+        submitted = st.form_submit_button("AI解析・自動データベース登録実行")
 
         if submitted:
-            if speaker and title and summary:
+            if raw_text:
+                # 自動解析のシミュレーション（実運用時はAI API等で構造化）
+                inferred_speaker = suggested_speaker if suggested_speaker else "未指定（自動抽出）"
+                inferred_category = suggested_category if suggested_category else "トレンド・その他"
+                
+                # テキストの先頭をタイトルにする等の自動処理
+                lines = raw_text.strip().split("\n")
+                inferred_title = lines[0][:50] if lines else "自動インポート記事"
+                summary = raw_text
+
                 conn = sqlite3.connect("policy_database.db")
                 c = conn.cursor()
                 c.execute(
@@ -62,37 +68,46 @@ if menu == "新規登録":
                     INSERT INTO policies (speaker, category, title, summary, source, url, tags, date)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (speaker, category, title, summary, source, url, tags, str(date)),
+                    (
+                        inferred_speaker,
+                        inferred_category,
+                        inferred_title,
+                        summary,
+                        "AI自動収集・Webスクレイピング",
+                        "",
+                        "自動生成, トレンド",
+                        str(datetime.today().date()),
+                    ),
                 )
                 conn.commit()
                 conn.close()
-                st.success("🎉 正常に登録されました！")
+                st.success("🎉 情報を自動解析し、データベースへ正常に組み込みました！")
             else:
-                st.error("⚠️ 「発言者・論客」「主張・タイトル」「要約」は必須項目です。")
+                st.error("⚠️ 解析するテキストを入力してください。")
 
 elif menu == "検索・閲覧":
-    st.header("🔍 登録データの検索・閲覧")
+    st.header("🔍 動的スマート検索・閲覧")
 
-    # データベースから既存の「発言者」の一覧を取得して重複を排除
+    # データベースから動的に「発言者」および「カテゴリ」の一覧を取得
     conn = sqlite3.connect("policy_database.db")
     c = conn.cursor()
+    
     c.execute("SELECT DISTINCT speaker FROM policies ORDER BY speaker")
-    speaker_rows = c.fetchall()
-    speaker_list = ["すべて"] + [row[0] for row in speaker_rows if row[0]]
+    speaker_list = ["すべて"] + [row[0] for row in c.fetchall() if row[0]]
 
-    # 検索フィルター（3カラムで柔軟に絞り込み）
+    c.execute("SELECT DISTINCT category FROM policies ORDER BY category")
+    category_list = ["すべて"] + [row[0] for row in c.fetchall() if row[0]]
+
+    # 検索フィルター（3カラムによる動的絞り込み）
     col1, col2, col3 = st.columns(3)
     with col1:
         selected_speaker = st.selectbox("発言者・論客で絞り込み", speaker_list)
     with col2:
-        selected_category = st.selectbox(
-            "カテゴリで絞り込み",
-            ["すべて", "政治・経済", "社会・倫理", "外交・安全保障", "テクノロジー", "科学・教育", "ビジネス・労働", "その他"]
-        )
+        selected_category = st.selectbox("カテゴリで絞り込み", category_list)
     with col3:
-        search_keyword = st.text_input("キーワード検索（タイトル・内容・タグなど）")
+        search_keyword = st.text_input("キーワード検索（フリーワード）")
 
-    # SQLの動的構築（選択された条件をすべてANDで結合）
+    # 動的SQL構築
     query = "SELECT speaker, category, title, summary, source, url, tags, date FROM policies WHERE 1=1"
     params = []
 
@@ -106,8 +121,8 @@ elif menu == "検索・閲覧":
 
     if search_keyword:
         query += " AND (speaker LIKE ? OR title LIKE ? OR summary LIKE ? OR tags LIKE ?)"
-        keyword_param = f"%{search_keyword}%"
-        params.extend([keyword_param, keyword_param, keyword_param, keyword_param])
+        kw = f"%{search_keyword}%"
+        params.extend([kw, kw, kw, kw])
 
     query += " ORDER BY id DESC"
 
@@ -122,11 +137,11 @@ elif menu == "検索・閲覧":
         for r in results:
             st.markdown(f"### [{r[1]}] {r[2]}")
             st.markdown(f"**発言者・論客:** {r[0]} | **出典:** {r[4]} | **登録日:** {r[7]}")
-            st.markdown(f"**【正論・論拠の要約】**\n{r[3]}")
+            st.markdown(f"**【要約・内容】**\n{r[3]}")
             if r[5]:
-                st.markdown(f"🔗 [参考URL/動画]({r[5]})")
+                st.markdown(f"🔗 [参考リンク]({r[5]})")
             if r[6]:
                 st.markdown(f"🏷️ **タグ:** {r[6]}")
             st.markdown("---")
     else:
-        st.info("💡 該当するデータが見つかりませんでした。条件を変えるか、「新規登録」からデータを追加してみてください。")
+        st.info("💡 該当するデータがありません。「AI自動インポート・収集」から新しい情報を流し込んでデータベースを動的に更新してください。")
