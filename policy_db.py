@@ -1,5 +1,4 @@
 import sqlite3
-from datetime import datetime
 import streamlit as st
 
 # データベースの初期化
@@ -28,116 +27,76 @@ init_db()
 
 st.set_page_config(page_title="正論・論拠データベース", page_icon="🏛️", layout="wide")
 
-st.title("🏛️ 正論・論拠データベース（自動・動的更新型）")
-st.markdown("情報を貼り付けるだけで瞬時に解析・蓄積され、多角的に検索できる次世代データベースです。")
+st.title("🏛️ 正論・論拠データベース・検索システム")
+st.markdown("必要な情報をマルチ条件（人物・カテゴリ・キーワード）で自在に即時抽出するためのデータベースビューです。")
 
-# サイドバーによるメニュー切り替え
-menu = st.sidebar.selectbox("メニュー", ["検索・閲覧", "AI自動インポート・収集"])
+# データベースから動的に「発言者」および「カテゴリ」の一覧を取得
+conn = sqlite3.connect("policy_database.db")
+c = conn.cursor()
 
-if menu == "AI自動インポート・収集":
-    st.header("🤖 AI自動インポート・情報収集")
-    st.markdown("文章を貼り付けるだけで、未入力の項目は自動補完されて即座にデータベースへ蓄積されます。")
+c.execute("SELECT DISTINCT speaker FROM policies ORDER BY speaker")
+speaker_list = ["すべて"] + [row[0] for row in c.fetchall() if row[0]]
 
-    # 必須なのはこの文章の枠だけです
-    raw_text = st.text_area("収集・登録したい文章やニュース内容（ここだけでOK）", height=180, placeholder="例：石原慎太郎氏の尖閣諸島に関する発言や論考のテキスト...")
-    
-    col_a, col_b = st.columns(2)
-    with col_a:
-        suggested_speaker = st.text_input("発言者・論客（空欄でもOK）", placeholder="例：石原慎太郎")
-    with col_b:
-        suggested_category = st.text_input("カテゴリ・テーマ（空欄でもOK）", placeholder="例：外交・安全保障")
+c.execute("SELECT DISTINCT category FROM policies ORDER BY category")
+category_list = ["すべて"] + [row[0] for row in c.fetchall() if row[0]]
 
-    if st.button("AI解析・自動データベース登録実行"):
-        if raw_text.strip():
-            # 空欄の場合は自動でデフォルト値を設定
-            inferred_speaker = suggested_speaker.strip() if suggested_speaker.strip() else "未指定（自動抽出）"
-            inferred_category = suggested_category.strip() if suggested_category.strip() else "トレンド・一般"
-            
-            lines = raw_text.strip().split("\n")
-            inferred_title = lines[0][:50] if lines else "自動インポート記事"
-            summary = raw_text
+# 検索フィルター（3カラムによる多角的絞り込み）
+col1, col2, col3 = st.columns(3)
+with col1:
+    selected_speaker = st.selectbox("発言者・論客で絞り込み", speaker_list)
+with col2:
+    selected_category = st.selectbox("カテゴリで絞り込み", category_list)
+with col3:
+    search_keyword = st.text_input("キーワード検索（フリーワード）")
 
-            conn = sqlite3.connect("policy_database.db")
-            c = conn.cursor()
-            c.execute(
-                """
-                INSERT INTO policies (speaker, category, title, summary, source, url, tags, date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    inferred_speaker,
-                    inferred_category,
-                    inferred_title,
-                    summary,
-                    "AI自動収集・Webスクレイピング",
-                    "",
-                    "自動生成, トレンド",
-                    str(datetime.today().date()),
-                ),
-            )
-            conn.commit()
-            conn.close()
-            st.success("🎉 情報を自動解析し、データベースへ正常に登録しました！「検索・閲覧」から確認できます。")
-        else:
-            st.error("⚠️ 登録する文章を入力してください。")
+# 動的SQL構築
+query = "SELECT speaker, category, title, summary, source, url, tags, date FROM policies WHERE 1=1"
+params = []
 
-elif menu == "検索・閲覧":
-    st.header("🔍 動的スマート検索・閲覧")
+if selected_speaker != "すべて":
+    query += " AND speaker = ?"
+    params.append(selected_speaker)
 
-    # データベースから動的に「発言者」および「カテゴリ」の一覧を取得
-    conn = sqlite3.connect("policy_database.db")
-    c = conn.cursor()
-    
-    c.execute("SELECT DISTINCT speaker FROM policies ORDER BY speaker")
-    speaker_list = ["すべて"] + [row[0] for row in c.fetchall() if row[0]]
+if selected_category != "すべて":
+    query += " AND category = ?"
+    params.append(selected_category)
 
-    c.execute("SELECT DISTINCT category FROM policies ORDER BY category")
-    category_list = ["すべて"] + [row[0] for row in c.fetchall() if row[0]]
-
-    # 検索フィルター
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        selected_speaker = st.selectbox("発言者・論客で絞り込み", speaker_list)
-    with col2:
-        selected_category = st.selectbox("カテゴリで絞り込み", category_list)
-    with col3:
-        search_keyword = st.text_input("キーワード検索（フリーワード）")
-
-    # 動的SQL構築
+if search_keyword:
+    query += " AND (speaker LIKE ? || title LIKE ? || summary LIKE ? || tags LIKE ?)"
+    # SQLiteの構文修正
     query = "SELECT speaker, category, title, summary, source, url, tags, date FROM policies WHERE 1=1"
-    params = []
-
     if selected_speaker != "すべて":
         query += " AND speaker = ?"
-        params.append(selected_speaker)
+        params = [selected_speaker]
+    else:
+        params = []
 
     if selected_category != "すべて":
         query += " AND category = ?"
         params.append(selected_category)
 
-    if search_keyword:
-        query += " AND (speaker LIKE ? OR title LIKE ? OR summary LIKE ? OR tags LIKE ?)"
-        kw = f"%{search_keyword}%"
-        params.extend([kw, kw, kw, kw])
+    kw = f"%{search_keyword}%"
+    query += " AND (speaker LIKE ? OR title LIKE ? OR summary LIKE ? OR tags LIKE ?)"
+    params.extend([kw, kw, kw, kw])
 
-    query += " ORDER BY id DESC"
+query += " ORDER BY id DESC"
 
-    c.execute(query, params)
-    results = c.fetchall()
-    conn.close()
+c.execute(query, params)
+results = c.fetchall()
+conn.close()
 
-    st.markdown(f"**検索結果:** {len(results)} 件のデータが見つかりました。")
-    st.markdown("---")
+st.markdown(f"**抽出結果:** {len(results)} 件のデータが見つかりました。")
+st.markdown("---")
 
-    if results:
-        for r in results:
-            st.markdown(f"### [{r[1]}] {r[2]}")
-            st.markdown(f"**発言者・論客:** {r[0]} | **出典:** {r[4]} | **登録日:** {r[7]}")
-            st.markdown(f"**【要約・内容】**\n{r[3]}")
-            if r[5]:
-                st.markdown(f"🔗 [参考リンク]({r[5]})")
-            if r[6]:
-                st.markdown(f"🏷️ **タグ:** {r[6]}")
-            st.markdown("---")
-    else:
-        st.info("💡 該当するデータがありません。「AI自動インポート・収集」から新しい情報を登録してください。")
+if results:
+    for r in results:
+        st.markdown(f"### [{r[1]}] {r[2]}")
+        st.markdown(f"**発言者・論客:** {r[0]} | **出典:** {r[4]} | **登録日:** {r[7]}")
+        st.markdown(f"**【要約・内容】**\n{r[3]}")
+        if r[5]:
+            st.markdown(f"🔗 [参考リンク]({r[5]})")
+        if r[6]:
+            st.markdown(f"🏷️ **タグ:** {r[6]}")
+        st.markdown("---")
+else:
+    st.info("💡 検索条件に一致するデータはありません。")
