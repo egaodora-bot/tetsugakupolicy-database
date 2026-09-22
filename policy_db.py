@@ -1,66 +1,114 @@
-import streamlit as st
 import sqlite3
 from datetime import datetime
+import streamlit as st
 
-DB_NAME = "policy_database.db"
-
+# データベースの初期化
 def init_db():
-    """データベースとテーブルの初期化"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS statements (
+    conn = sqlite3.connect("policy_database.db")
+    c = conn.cursor()
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS policies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            speaker TEXT NOT NULL,
-            category TEXT NOT NULL,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
+            speaker TEXT,
+            category TEXT,
+            title TEXT,
+            summary TEXT,
             source TEXT,
             url TEXT,
             tags TEXT,
-            created_at TEXT
+            date TEXT
         )
-    """)
+    """
+    )
     conn.commit()
     conn.close()
 
-def main():
-    init_db()
-    st.set_page_config(page_title="政策論・有識者データベース", layout="wide")
-    
-    st.title("🏛️ 政策論・有識者データベース")
-    st.write("会田卓司氏をはじめとする有識者・参考人の正論や政策論、参考URLを一元管理します。")
+# 初期化実行
+init_db()
 
-    # サイドバーでメニュー切り替え
-    menu = st.sidebar.selectbox("メニュー", ["データ一覧・検索", "新規データ登録"])
+st.set_page_config(page_title="正論・論拠データベース", page_icon="🏛️", layout="wide")
 
-    # 1. データ一覧・検索画面
-    if menu == "Data List & Search" or menu == "データ一覧・検索":
-        st.subheader("🔍 データ検索・閲覧")
-        
-        keyword = st.text_input("キーワード検索 (発言者、タイトル、タグ、内容など)")
-        
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        
-        if keyword:
-            query = """
-                SELECT speaker, category, title, content, source, url, tags, created_at 
-                FROM statements 
-                WHERE speaker LIKE ? OR category LIKE ? OR title LIKE ? OR content LIKE ? OR tags LIKE ? OR url LIKE ?
-            """
-            pattern = f"%{keyword}%"
-            cursor.execute(query, (pattern, pattern, pattern, pattern, pattern, pattern))
-        else:
-            cursor.execute("SELECT speaker, category, title, content, source, url, tags, created_at FROM statements ORDER BY id DESC")
-            
-        results = cursor.fetchall()
-        conn.close()
+st.title("🏛️ 正論・論拠データベース")
+st.markdown("心に響く正論、的確な論拠、優れた意見を蓄積・検索するためのデータベースです。")
 
-        st.write(f"検索結果: **{len(results)}** 件")
-        st.markdown("---")
+# サイドバーメニュー
+menu = st.sidebar.selectbox("メニュー", ["検索・閲覧", "新規登録"])
 
-       for r in results:
+if menu == "新規登録":
+    st.header("📝 新しい正論・論拠の登録")
+
+    with st.form("policy_form"):
+        speaker = st.text_input("発言者・論客（例：〇〇 〇〇、有識者A など）")
+        category = st.selectbox(
+            "カテゴリ",
+            ["政治・経済", "社会・倫理", "テクノロジー", "科学・教育", "ビジネス・労働", "その他"]
+        )
+        title = st.text_input("主張・タイトルの要約（例：〇〇に関する一刀両断の意見）")
+        summary = st.text_area("正論・論拠の要約・詳細内容", height=150)
+        source = st.text_input("出典（例：〇〇書籍、〇〇のインタビュー、YouTube番組名 など）")
+        url = st.text_input("参考URL/動画リンク（任意）")
+        tags = st.text_input("タグ（カンマ区切り 例：AI, 労働, 規制緩和）")
+        date = st.date_input("登録日", datetime.today())
+
+        submitted = st.form_submit_button("登録する")
+
+        if submitted:
+            if speaker and title and summary:
+                conn = sqlite3.connect("policy_database.db")
+                c = conn.cursor()
+                c.execute(
+                    """
+                    INSERT INTO policies (speaker, category, title, summary, source, url, tags, date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (speaker, category, title, summary, source, url, tags, str(date)),
+                )
+                conn.commit()
+                conn.close()
+                st.success("🎉 正常に登録されました！")
+            else:
+                st.error("⚠️ 「発言者・論客」「主張・タイトル」「要約」は必須項目です。")
+
+elif menu == "検索・閲覧":
+    st.header("🔍 登録データの検索・閲覧")
+
+    # 検索フィルター
+    col1, col2 = st.columns(2)
+    with col1:
+        search_keyword = st.text_input("キーワード検索（発言者、タイトル、内容など）")
+    with col2:
+        selected_category = st.selectbox(
+            "カテゴリ絞り込み",
+            ["すべて", "政治・経済", "社会・倫理", "テクノロジー", "科学・教育", "ビジネス・労働", "その他"]
+        )
+
+    conn = sqlite3.connect("policy_database.db")
+    c = conn.cursor()
+
+    query = "SELECT speaker, category, title, summary, source, url, tags, date FROM policies WHERE 1=1"
+    params = []
+
+    if search_keyword:
+        query += " AND (speaker LIKE ? OR title LIKE ? OR summary LIKE ? OR tags LIKE ?)"
+        keyword_param = f"%{search_keyword}%"
+        params.extend([keyword_param, keyword_param, keyword_param, keyword_param])
+
+    if selected_category != "すべて":
+        query += " AND category = ?"
+        params.append(selected_category)
+
+    query += " ORDER BY id DESC"
+
+    c.execute(query, params)
+    results = c.fetchall()
+    conn.close()
+
+    st.markdown(f"**検索結果:** {len(results)} 件のデータが見つかりました。")
+    st.markdown("---")
+
+    if results:
+        for r in results:
             st.markdown(f"### [{r[1]}] {r[2]}")
             st.markdown(f"**発言者・論客:** {r[0]} | **出典:** {r[4]} | **登録日:** {r[7]}")
             st.markdown(f"**【正論・論拠の要約】**\n{r[3]}")
@@ -69,36 +117,5 @@ def main():
             if r[6]:
                 st.markdown(f"🏷️ **タグ:** {r[6]}")
             st.markdown("---")
-
-    # 2. 新規データ登録画面
-    elif menu == "New Data Entry" or menu == "新規データ登録":
-        st.subheader("📝 新規データの登録")
-        
-        with st.form("entry_form"):
-            speaker = st.text_input("発言者・論客名 (例: 会田 卓司)")
-            category = st.selectbox("カテゴリ", ["財政規律", "成長投資", "エネルギー", "国家会計", "経済理論", "その他"])
-            title = st.text_input("タイトル / テーマ")
-            content = st.text_area("【正論・論拠の要約】(データや客観的事実に基づく主張)")
-            source = st.text_input("出典 (国会公聴会・著書・媒体名など)")
-            url = st.text_input("参考URL (YouTube動画、Facebookリール、記事のリンク等)")
-            tags = st.text_input("タグ (カンマ区切り 例: 積極財政, 投資不足)")
-            
-            submitted = st.form_submit_button("登録する")
-            
-            if submitted:
-                if speaker and title and content:
-                    created_at = datetime.now().strftime("%Y-%m-%d")
-                    conn = sqlite3.connect(DB_NAME)
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT INTO statements (speaker, category, title, content, source, url, tags, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (speaker, category, title, content, source, url, tags, created_at))
-                    conn.commit()
-                    conn.close()
-                    st.success(">> データを正常に登録しました！")
-                else:
-                    st.error("「発言者」「タイトル」「論拠の要約」は必須入力です。")
-
-if __name__ == "__main__":
-    main()
+    else:
+        st.info("💡 該当するデータが見つかりませんでした。「新規登録」からデータを追加してみてください。")
