@@ -1,102 +1,63 @@
-import sqlite3
 import streamlit as st
+import urllib.request
+import urllib.parse
+import json
+import xml.etree.ElementTree as ET
 
-# データベースの初期化
-def init_db():
-    conn = sqlite3.connect("policy_database.db")
-    c = conn.cursor()
-    c.execute(
-        """
-        CREATE TABLE IF NOT EXISTS policies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            speaker TEXT,
-            category TEXT,
-            title TEXT,
-            summary TEXT,
-            source TEXT,
-            url TEXT,
-            tags TEXT,
-            date TEXT
-        )
-    """
-    )
-    conn.commit()
-    conn.close()
+st.set_page_config(page_title="正論・論拠リアルタイムポータル", page_icon="🌐", layout="wide")
 
-init_db()
+st.title("🌐 正論・論拠リアルタイム検索ポータル")
+st.markdown("データベースに蓄積する必要はありません。検索のたびにインターネット上の最新情報をリアルタイムで取得し、多角的に表示します。")
 
-st.set_page_config(page_title="正論・論拠データベース", page_icon="🏛️", layout="wide")
-
-st.title("🏛️ 正論・論拠データベース・検索システム")
-st.markdown("必要な情報をマルチ条件（人物・カテゴリ・キーワード）で自在に即時抽出するためのデータベースビューです。")
-
-# データベースから動的に「発言者」および「カテゴリ」の一覧を取得
-conn = sqlite3.connect("policy_database.db")
-c = conn.cursor()
-
-c.execute("SELECT DISTINCT speaker FROM policies ORDER BY speaker")
-speaker_list = ["すべて"] + [row[0] for row in c.fetchall() if row[0]]
-
-c.execute("SELECT DISTINCT category FROM policies ORDER BY category")
-category_list = ["すべて"] + [row[0] for row in c.fetchall() if row[0]]
-
-# 検索フィルター（3カラムによる多角的絞り込み）
-col1, col2, col3 = st.columns(3)
+# 検索条件の入力（検索ワード、カテゴリ風の絞り込み）
+col1, col2 = st.columns([2, 1])
 with col1:
-    selected_speaker = st.selectbox("発言者・論客で絞り込み", speaker_list)
+    search_keyword = st.text_input("キーワード・人物名検索（例：石原慎太郎、尖閣諸島、防衛論 など）", "石原慎太郎 尖閣")
 with col2:
-    selected_category = st.selectbox("カテゴリで絞り込み", category_list)
-with col3:
-    search_keyword = st.text_input("キーワード検索（フリーワード）")
+    search_scope = st.selectbox("情報ソース", ["Google ニュース（Web全体）", "トレンド・論考"])
 
-# 動的SQL構築
-query = "SELECT speaker, category, title, summary, source, url, tags, date FROM policies WHERE 1=1"
-params = []
-
-if selected_speaker != "すべて":
-    query += " AND speaker = ?"
-    params.append(selected_speaker)
-
-if selected_category != "すべて":
-    query += " AND category = ?"
-    params.append(selected_category)
-
-if search_keyword:
-    query += " AND (speaker LIKE ? || title LIKE ? || summary LIKE ? || tags LIKE ?)"
-    # SQLiteの構文修正
-    query = "SELECT speaker, category, title, summary, source, url, tags, date FROM policies WHERE 1=1"
-    if selected_speaker != "すべて":
-        query += " AND speaker = ?"
-        params = [selected_speaker]
-    else:
-        params = []
-
-    if selected_category != "すべて":
-        query += " AND category = ?"
-        params.append(selected_category)
-
-    kw = f"%{search_keyword}%"
-    query += " AND (speaker LIKE ? OR title LIKE ? OR summary LIKE ? OR tags LIKE ?)"
-    params.extend([kw, kw, kw, kw])
-
-query += " ORDER BY id DESC"
-
-c.execute(query, params)
-results = c.fetchall()
-conn.close()
-
-st.markdown(f"**抽出結果:** {len(results)} 件のデータが見つかりました。")
 st.markdown("---")
 
-if results:
-    for r in results:
-        st.markdown(f"### [{r[1]}] {r[2]}")
-        st.markdown(f"**発言者・論客:** {r[0]} | **出典:** {r[4]} | **登録日:** {r[7]}")
-        st.markdown(f"**【要約・内容】**\n{r[3]}")
-        if r[5]:
-            st.markdown(f"🔗 [参考リンク]({r[5]})")
-        if r[6]:
-            st.markdown(f"🏷️ **タグ:** {r[6]}")
-        st.markdown("---")
+if search_keyword:
+    st.markdown(f"**「{search_keyword}」に関する最新情報をインターネットからリアルタイム取得中...**")
+    
+    # 外部の無料RSS/API等（GoogleニュースのRSSなど）を利用してリアルタイムに情報を取得する処理
+    try:
+        encoded_query = urllib.parse.quote(search_keyword)
+        # GoogleニュースのRSSフィードURL
+        rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ja&gl=JP&ceid=JP:ja"
+        
+        req = urllib.request.Request(
+            rss_url, 
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        
+        with urllib.request.urlopen(req) as response:
+            xml_data = response.read()
+            
+        # XMLを解析
+        root = ET.fromstring(xml_data)
+        items = root.findall('.//item')
+        
+        if items:
+            st.markdown(f"**取得結果:** リアルタイム最新記事 {len(items)} 件")
+            st.markdown("---")
+            
+            for item in items[:15]: # 上位15件を表示
+                title = item.find('title').text if item.find('title') is not None else "タイトルなし"
+                link = item.find('link').text if item.find('link') is not None else "#"
+                pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
+                source_node = item.find('source')
+                source_name = source_node.text if source_node is not None else "Webメディア"
+                
+                st.markdown(f"### [{source_name}] {title}")
+                st.markdown(f"**公開日時:** {pub_date}")
+                st.markdown(f"🔗 [記事・詳細リンクを開く]({link})")
+                st.markdown("---")
+        else:
+            st.info("💡 該当するリアルタイム情報が見つかりませんでした。別のキーワードでお試しください。")
+            
+    except Exception as e:
+        st.error(f"⚠️ 情報の取得中にエラーが発生しました: {e}")
 else:
-    st.info("💡 検索条件に一致するデータはありません。")
+    st.info("💡 上部の検索ボックスに調べたい人物名やキーワードを入力してください。")
