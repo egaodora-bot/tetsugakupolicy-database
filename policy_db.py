@@ -60,9 +60,9 @@ def main():
         st.write(f"検索結果: **{len(results)}** 件")
         st.markdown("---")
 
-        for r in results:
+       for r in results:
             st.markdown(f"### [{r[1]}] {r[2]}")
-          st.markdown(f"**発言者・論客:** {r[0]} | **出典:** {r[4]} | **登録日:** {r[7]}")
+            st.markdown(f"**発言者・論客:** {r[0]} | **出典:** {r[4]} | **登録日:** {r[7]}")
             st.markdown(f"**【正論・論拠の要約】**\n{r[3]}")
             if r[5]:
                 st.markdown(f"🔗 [参考URL/動画]({r[5]})")
